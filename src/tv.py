@@ -34,15 +34,22 @@ def get_pnl(price_df: pd.DataFrame, weights: list[float], investment) -> pd.Seri
     return simple_returns @ weights
 
 def get_risk_hist(pnl: pd.Series, days, ci):
-    range_pnl = pnl.rolling(window=days).sum()
+    range_pnl = pnl.rolling(window=days).sum() 
     range_pnl = range_pnl.dropna()
+
     var = -np.quantile(range_pnl, 1 - ci)
     es = -range_pnl[range_pnl <= -var].mean()
 
     return float(var), float(es), pd.Series(range_pnl)
 
 def get_risk_t(df: pd.DataFrame, days, ci, investment, weights, num_sims = 100_000, nu = 4, volatility_scaler = 1):
-    
+    # Generate multi-day PnL simulations:
+    #   1. Draw standard normals for each asset and day
+    #   2. Apply Cholesky to introduce correlations
+    #   3. Scale by chi-square for t-distribution tails
+    #   4. Compute weighted portfolio daily PnL and sum over days
+    # Compute VaR and ES
+
     pnl = df.pct_change().dropna() * investment
 
     mu = pnl.mean().values
@@ -53,17 +60,17 @@ def get_risk_t(df: pd.DataFrame, days, ci, investment, weights, num_sims = 100_0
     shape = shape * volatility_scaler ** 2
     L = np.linalg.cholesky(shape)
 
-    #Generating all normal draws (our numerator)
+    # Generating all normal draws (our numerator)
     rng = np.random.default_rng(None) #Creating the random seed
     Z = rng.standard_normal(size=(num_sims, days, n_assets))
     daily_normal = Z @ L.T #shape: (num_sims, days, n_assets)
 
-    #Generating 1 chi-square per simulation and scaling it (our denominator)
+    # Generating 1 chi-square per simulation and scaling it (our denominator)
     U = rng.chisquare(df=nu, size=num_sims) #shape: (num_sims,)
     scale = np.sqrt(U / nu)
     scale = scale[:, None, None] #shape: (num_sims, 1, 1)
 
-    #Combining them into multivariate Student t ( mu + Z/(sqrt(U/nu)) )
+    # Combining them into multivariate Student t ( mu + Z/(sqrt(U/nu)) )
     daily_pnl = mu + daily_normal / scale #shape: (num_sims, days, n_assets)
     
     portfolio_daily = np.einsum('ijk,k->ij', daily_pnl, weights) # daily_pnl @ weights -> (num_sims, days)
@@ -242,7 +249,7 @@ def main():
                 10-day ES (Student t): ${ES_10:,.0f}
     """)
 
-# Scenario 4. Increased Tail Risk
+#   Scenario 4. Increased Tail Risk
     ci = 0.95
     nu = 3
 
@@ -286,7 +293,7 @@ def main():
                 10-day ES (Student t): ${ES_10:,.0f}
     """)
     
-# Scenario 5. Extreme Volatility and Increased Tail Risk
+#   Scenario 5. Extreme Volatility and Increased Tail Risk
     ci = 0.95
     nu = 3
     volatility_coefficient = 4
