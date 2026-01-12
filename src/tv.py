@@ -5,26 +5,31 @@ import matplotlib.pyplot as plt
 import datetime as dt
 
 
-def tv_download(tickers: list[tuple[str, str, str]], interval: str, n_bars: int) -> pd.DataFrame:
+def tv_download(tickers: list[tuple[str, str, str]], interval: str, n_bars) -> pd.DataFrame: #tickers in format: symbol, exchange, name (optional)
     tv = TvDatafeed()
     returns_df = pd.DataFrame()
 
     for i in range(len(tickers)):
-        df: pd.DataFrame = tv.get_hist(symbol=tickers[i][0], exchange=tickers[i][1], interval=interval, n_bars=n_bars, fut_contract=1)
+        df: pd.DataFrame = tv.get_hist(
+            symbol=tickers[i][0],
+            exchange=tickers[i][1],
+            interval=interval,
+            n_bars=n_bars,
+            fut_contract=1
+            )
+        
         returns_df[f"{tickers[i][0]}"] = df["close"].values
         returns_df.set_index(df.index.values, inplace=True)
 
     return returns_df.dropna()
-
 
 def tv_import(path: str) -> pd.DataFrame:
     df = pd.read_csv(f"./data/{path}")
     df.set_index(pd.to_datetime(df.iloc[:, 0]), inplace=True)
     df = df.drop(df.columns[0], axis=1)
     return df
-        
 
-def get_pnl(price_df: pd.DataFrame, weights: list[float], investment: float) -> pd.Series:
+def get_pnl(price_df: pd.DataFrame, weights: list[float], investment) -> pd.Series:
     simple_returns = price_df.pct_change().dropna() * investment
     return simple_returns @ weights
 
@@ -36,7 +41,7 @@ def get_risk_hist(pnl: pd.Series, days, ci):
 
     return float(var), float(es), pd.Series(range_pnl)
 
-def get_risk_t(df, days, ci, investment, weights, num_sims = 100_000, nu = 4, volatility_scaler = 1):
+def get_risk_t(df: pd.DataFrame, days, ci, investment, weights, num_sims = 100_000, nu = 4, volatility_scaler = 1):
     
     pnl = df.pct_change().dropna() * investment
 
@@ -119,7 +124,13 @@ def scenario_hist(df, weights, investment, start_date: dt.datetime, end_date: dt
     total_loss_gain = scenario_pnl.sum()
 
     pnl_chart(scenario_pnl, 250_000_000, title=f"{title}. Portfolio Equity")
-    VaR_mc, ES_mc, total_pnl = get_risk_t(scenario_df, days=days, ci=ci, investment=investment, weights=weights, nu=nu)
+    VaR_mc, ES_mc, total_pnl = get_risk_t(scenario_df,
+        days=days,
+        ci=ci,
+        investment=investment,
+        weights=weights,
+        nu=nu
+    )
 
 
     create_hist_plot(total_pnl, title=f"{title} Monte Carlo Simulation over {days} days", lines=(VaR_mc, ES_mc), lines_labels=("VaR", "Expected Shortfall"), line_colors=("yellow", "red"))
@@ -159,7 +170,9 @@ def main():
 
     df = tv_import("tv_data.csv")
 
-    weights: np.ndarray = np.array([1/len(tickers_list)]*len(tickers_list)) 
+#    weights = np.array([1/len(tickers_list)]*len(tickers_list)) 
+
+    weights = [-0.1, 0.1, -0.1, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
     investment = 5_000_000_000 * 0.95
 
 #   Scenario 1. Oil Price Crash 2020
@@ -181,16 +194,40 @@ def main():
     nu = 5
     volatility_coefficient = 2
 
-    VaR_5, ES_5, total_pnl_5 = get_risk_t(df, days=5, ci=ci, investment=investment, weights=weights, nu=nu, volatility_scaler=volatility_coefficient)
+    VaR_5, ES_5, total_pnl_5 = get_risk_t(
+        df,
+        days=5,
+        ci=ci,
+        investment=investment,
+        weights=weights,
+        nu=nu,
+        volatility_scaler=volatility_coefficient
+        )
 
-    create_hist_plot(total_pnl_5, title=f"Stress Test 3. Monte Carlo Simulation over {5} days", lines=(VaR_5, ES_5),
-                    lines_labels=("VaR", "Expected Shortfall"), line_colors=("yellow", "red"))
+    create_hist_plot(total_pnl_5,
+        title=f"Stress Test 3. Monte Carlo Simulation over {5} days",
+        lines=(VaR_5, ES_5),
+        lines_labels=("VaR", "Expected Shortfall"),
+        line_colors=("yellow", "red")
+    )
 
 
-    VaR_10, ES_10, total_pnl_10 = get_risk_t(df, days=10, ci=ci, investment=investment, weights=weights, nu=nu, volatility_scaler=volatility_coefficient)
+    VaR_10, ES_10, total_pnl_10 = get_risk_t(
+        df,
+        days=10,
+        ci=ci,
+        investment=investment,
+        weights=weights,
+        nu=nu,
+        volatility_scaler=volatility_coefficient
+    )
 
-    create_hist_plot(total_pnl_10, title=f"Stress Test 3. Monte Carlo Simulation over {10} days", lines=(VaR_10, ES_10), 
-                    lines_labels=("VaR", "Expected Shortfall"), line_colors=("yellow", "red"))
+    create_hist_plot(total_pnl_10,
+        title=f"Stress Test 3. Monte Carlo Simulation over {10} days",
+        lines=(VaR_10, ES_10), 
+        lines_labels=("VaR", "Expected Shortfall"),
+        line_colors=("yellow", "red")
+    )
 
 
     print(f"""
@@ -203,22 +240,39 @@ def main():
                 5-day ES (Student t): ${ES_5:,.0f}\n
                 10-day VaR (Student t): ${VaR_10:,.0f}\n
                 10-day ES (Student t): ${ES_10:,.0f}
-        """)
+    """)
 
 # Scenario 4. Increased Tail Risk
     ci = 0.95
     nu = 3
 
-    VaR_5, ES_5, total_pnl_5 = get_risk_t(df, days=5, ci=ci, investment=investment, weights=weights, nu=nu)
+    VaR_5, ES_5, total_pnl_5 = get_risk_t(
+        df,
+        days=5,
+        ci=ci,
+        investment=investment,
+        weights=weights,
+        nu=nu
+    )
 
-    create_hist_plot(total_pnl_5, title=f"Stress Test 4. Monte Carlo Simulation over {5} days", lines=(VaR_5, ES_5),
-                    lines_labels=("VaR", "Expected Shortfall"), line_colors=("yellow", "red"))
+    create_hist_plot(
+        total_pnl_5,
+        title=f"Stress Test 4. Monte Carlo Simulation over {5} days",
+        lines=(VaR_5, ES_5),
+        lines_labels=("VaR", "Expected Shortfall"),
+        line_colors=("yellow", "red")
+    )
 
 
     VaR_10, ES_10, total_pnl_10 = get_risk_t(df, days=10, ci=ci, investment=investment, weights=weights, nu=nu)
 
-    create_hist_plot(total_pnl_10, title=f"Stress Test 4. Monte Carlo Simulation over {10} days", lines=(VaR_10, ES_10), 
-                    lines_labels=("VaR", "Expected Shortfall"), line_colors=("yellow", "red"))
+    create_hist_plot(
+        total_pnl_10,
+        title=f"Stress Test 4. Monte Carlo Simulation over {10} days",
+        lines=(VaR_10, ES_10), 
+        lines_labels=("VaR", "Expected Shortfall"),
+        line_colors=("yellow", "red")
+    )
 
 
     print(f"""
@@ -230,8 +284,62 @@ def main():
                 5-day ES (Student t): ${ES_5:,.0f}\n
                 10-day VaR (Student t): ${VaR_10:,.0f}\n
                 10-day ES (Student t): ${ES_10:,.0f}
-        """)
+    """)
+    
+# Scenario 5. Extreme Volatility and Increased Tail Risk
+    ci = 0.95
+    nu = 3
+    volatility_coefficient = 4
 
+    VaR_5, ES_5, total_pnl_5 = get_risk_t(
+        df,
+        days=5,
+        ci=ci,
+        investment=investment,
+        weights=weights, 
+        nu=nu,
+        volatility_scaler=volatility_coefficient
+    )
+
+    create_hist_plot(
+        total_pnl_5,
+        title=f"Stress Test 5. Monte Carlo Simulation over {5} days",
+        lines=(VaR_5, ES_5),
+        lines_labels=("VaR", "Expected Shortfall"),
+        line_colors=("yellow", "red")
+    )
+
+
+    VaR_10, ES_10, total_pnl_10 = get_risk_t(
+        df,
+        days=10,
+        ci=ci,
+        investment=investment,
+        weights=weights,
+        nu=nu,
+        volatility_scaler=volatility_coefficient
+    )
+
+    create_hist_plot(
+        total_pnl_10,
+        title=f"Stress Test 5. Monte Carlo Simulation over {10} days",
+        lines=(VaR_10, ES_10), 
+        lines_labels=("VaR", "Expected Shortfall"),
+        line_colors=("yellow", "red")
+    )
+
+
+    print(f"""
+        ---Stress Test Scenario 5. Extreme Volatility and Increased Tail Risk---\n
+            Parameters:\n
+                Volatility increase: {volatility_coefficient*100}%\n
+                Degrees of freedom: {nu}\n
+            Results:\n
+                5-day VaR (Student t): ${VaR_5:,.0f}\n
+                5-day ES (Student t): ${ES_5:,.0f}\n
+                10-day VaR (Student t): ${VaR_10:,.0f}\n
+                10-day ES (Student t): ${ES_10:,.0f}
+    """)
 
 if __name__ == "__main__":
     main()
