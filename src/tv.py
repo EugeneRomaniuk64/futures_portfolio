@@ -73,7 +73,7 @@ def get_risk_t(df: pd.DataFrame, days, ci, investment, weights, num_sims = 100_0
     # Combining them into multivariate Student t ( mu + Z/(sqrt(U/nu)) )
     daily_pnl = mu + daily_normal / scale #shape: (num_sims, days, n_assets)
     
-    portfolio_daily = np.einsum('ijk,k->ij', daily_pnl, weights) # daily_pnl @ weights -> (num_sims, days)
+    portfolio_daily = portfolio_daily = daily_pnl @ weights # (num_sims, days)
     total_pnl = portfolio_daily.sum(axis=1) #shape: (num_sims,)
 
 
