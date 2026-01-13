@@ -191,11 +191,13 @@ def main():
 
     investment = 5_000_000_000 * 0.95
 
-    notional = investment * weights
+    notional_total = investment * 10
+
+    notional = notional_total * weights
     contract_values = prices_today * multipliers
 
     n_contracts = notional / contract_values
-    n_contracts = np.trunc(n_contracts)
+    n_contracts = np.trunc(n_contracts) #rounding to zero to be more conservative
 
 
     pnl = get_pnl(df, n_contracts, multipliers)
