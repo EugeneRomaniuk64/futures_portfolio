@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import datetime as dt
 
 
-def tv_download(tickers: list[tuple[str, str, str]], interval: str, n_bars) -> pd.DataFrame: #tickers in format: symbol, exchange, name (optional)
+def tv_download(tickers , interval: str, n_bars) -> pd.DataFrame: #tickers in format: symbol, exchange
     tv = TvDatafeed()
     returns_df = pd.DataFrame()
 
@@ -29,9 +29,9 @@ def tv_import(path: str) -> pd.DataFrame:
     df = df.drop(df.columns[0], axis=1)
     return df
 
-def get_pnl(price_df: pd.DataFrame, weights: list[float], investment) -> pd.Series:
-    simple_returns = price_df.pct_change().dropna() * investment
-    return simple_returns @ weights
+def get_pnl(price_df, num_contracts, multipliers) -> pd.Series:
+    delta_price = price_df.diff().dropna() 
+    return delta_price * num_contracts * multipliers
 
 def get_risk_hist(pnl: pd.Series, days, ci):
     range_pnl = pnl.rolling(window=days).sum() 
@@ -42,7 +42,7 @@ def get_risk_hist(pnl: pd.Series, days, ci):
 
     return float(var), float(es), pd.Series(range_pnl)
 
-def get_risk_t(df: pd.DataFrame, days, ci, investment, weights, num_sims = 100_000, nu = 4, volatility_scaler = 1):
+def get_risk_t(pnl: pd.DataFrame, days, ci, num_sims = 100_000, nu = 4, volatility_scaler = 1):
     # Generate multi-day PnL simulations:
     #   1. Draw standard normals for each asset and day
     #   2. Apply Cholesky to introduce correlations
@@ -50,10 +50,8 @@ def get_risk_t(df: pd.DataFrame, days, ci, investment, weights, num_sims = 100_0
     #   4. Compute weighted portfolio daily PnL and sum over days
     # Compute VaR and ES
 
-    pnl = df.pct_change().dropna() * investment
-
-    mu = pnl.mean().values
-    Sigma = pnl.cov().values
+    mu = pnl.mean().values #shape: (n_assets,)
+    Sigma = pnl.cov().values #shape: (n_assets, n_assets)
     n_assets = len(mu)
     
     shape = Sigma * (nu - 2) / nu
@@ -73,7 +71,7 @@ def get_risk_t(df: pd.DataFrame, days, ci, investment, weights, num_sims = 100_0
     # Combining them into multivariate Student t ( mu + Z/(sqrt(U/nu)) )
     daily_pnl = mu + daily_normal / scale #shape: (num_sims, days, n_assets)
     
-    portfolio_daily = portfolio_daily = daily_pnl @ weights # (num_sims, days)
+    portfolio_daily = daily_pnl.sum(axis=2) #shape: (num_sims, days)
     total_pnl = portfolio_daily.sum(axis=1) #shape: (num_sims,)
 
 
@@ -109,38 +107,40 @@ def pnl_chart(pnl, capital, title):
     plt.tight_layout()
     plt.show()
 
-def scenario_hist(df, weights, investment, start_date: dt.datetime, end_date: dt.datetime, title):
-    days=5
-    ci=0.95
+def scenario_hist(df, n_contracts, multipliers, start_date: dt.datetime, end_date: dt.datetime, title):
+    days = 5
+    ci = 0.95
     nu = 5
 
     scenario_df = df[df.index.to_series().between(start_date, end_date)]
 
-    scenario_pnl = get_pnl(scenario_df, weights, investment)
+    
+    scenario_pnl_df = pd.DataFrame(get_pnl(scenario_df, n_contracts, multipliers))
+    scenario_pnl = scenario_pnl_df.sum(axis=1)
 
-
+    
 
     VaR_roll, ES_roll, total_pnl_roll = get_risk_hist(scenario_pnl, days=days, ci=ci)
-
-    VaR_scale, ES_scale, total_pnl_scale = get_risk_hist(scenario_pnl, days=1, ci=ci)
-
-    VaR_scale = VaR_scale * np.sqrt(days)
-    ES_scale = ES_scale * np.sqrt(days)
-
 
     total_loss_gain = scenario_pnl.sum()
 
     pnl_chart(scenario_pnl, 250_000_000, title=f"{title}. Portfolio Equity")
-    VaR_mc, ES_mc, total_pnl = get_risk_t(scenario_df,
+
+    VaR_mc, ES_mc, total_pnl = get_risk_t(
+        pnl=scenario_pnl_df,
         days=days,
         ci=ci,
-        investment=investment,
-        weights=weights,
         nu=nu
     )
 
 
-    create_hist_plot(total_pnl, title=f"{title} Monte Carlo Simulation over {days} days", lines=(VaR_mc, ES_mc), lines_labels=("VaR", "Expected Shortfall"), line_colors=("yellow", "red"))
+    create_hist_plot(
+        total_pnl,
+        title=f"{title} Monte Carlo Simulation over {days} days",
+        lines=(VaR_mc, ES_mc),
+        lines_labels=("VaR", "Expected Shortfall"),
+        line_colors=("yellow", "red")
+    )
 
 
     print(f"""
@@ -152,8 +152,6 @@ def scenario_hist(df, weights, investment, start_date: dt.datetime, end_date: dt
                 Historical:\n\n
                 5-day VaR (rolling): ${VaR_roll:,.0f}\n
                 5-day ES (rolling): ${ES_roll:,.0f}\n
-                5-day VaR (scaled): ${VaR_scale:,.0f}\n
-                5-day ES (scaled): ${ES_scale:,.0f}\n
                 Total gain/loss: ${total_loss_gain:,.0f}\n\n
                 Monte Carlo:\n\n
                 5-day VaR (Student t): ${VaR_mc:,.0f}\n
@@ -162,31 +160,70 @@ def scenario_hist(df, weights, investment, start_date: dt.datetime, end_date: dt
 
 
 def main():
-    tickers_list = [
-        ("CL", "NYMEX", "WTI Crude Oil"), 
-        ("RB", "NYMEX", "RBOB Gasoline"),
-        ("NG", "NYMEX", "Natural Gas"),
-        ("GC", "COMEX", "Gold"),
-        ("SI", "COMEX", "Silver"),
-        ("PL", "NYMEX", "Platinum"),
-        ("ALI", "COMEX", "Aluminum (NOT Aluminium)"),
-        ("HG", "COMEX", "Copper"),
-        ("LE", "CME", "Live Cattle"),
-        ("ZS", "CBOT", "Soybeans")
-    ]
+    tickers_list = pd.DataFrame(
+        [
+            ["NYMEX", "WTI Crude Oil", 1000], 
+            ["NYMEX", "RBOB Gasoline", 42_000],
+            ["NYMEX", "Natural Gas", 10_000],
+            ["COMEX", "Gold", 100],
+            ["COMEX", "Silver", 5000],
+            ["NYMEX", "Platinum", 50],
+            ["COMEX", "Aluminum (NOT Aluminium)", 25],
+            ["COMEX", "Copper", 25_000],
+            ["CME", "Live Cattle", 40_000],
+            ["CBOT", "Soybeans", 5000]
+        ], 
+        columns=["Exchange", "Description", "Multiplier"],
+        index=["CL", "RB", "NG", "GC", "SI", "PL", "ALI", "HG", "LE", "ZS"]
+    )
+
+
 
     df = tv_import("tv_data.csv")
 
 #    weights = np.array([1/len(tickers_list)]*len(tickers_list)) 
 
-    weights = [-0.1, 0.1, -0.1, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    weights = np.array([-0.1, 0.1, -0.1, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1])
+
+    prices_today = df.iloc[-1].values
+
+    multipliers = tickers_list.loc[:, "Multiplier"].values
+
     investment = 5_000_000_000 * 0.95
+
+    notional = investment * weights
+    contract_values = prices_today * multipliers
+
+    n_contracts = notional / contract_values
+    n_contracts = np.trunc(n_contracts)
+
+
+    pnl = get_pnl(df, n_contracts, multipliers)
+    portfolio_pnl = pnl.sum(axis=1)
+
+    VaR, ES, rolling_pnl = get_risk_hist(portfolio_pnl, 10, 0.95)
+
+    print(portfolio_pnl.std())
+
+    print(f"""
+        ---Common Risk Metrics---\n
+            10-days VaR (historical): ${VaR:,.0f}\n
+            10-days ES (historical): ${ES:,.0f}
+    """)    
+
+    create_hist_plot(
+        rolling_pnl,
+        title="Common Risk Metrics",
+        lines=(VaR, ES), 
+        lines_labels=("VaR", "ES"),
+        line_colors=("yellow", "red")
+    )
 
 #   Scenario 1. Oil Price Crash 2020
     start_date = dt.datetime(2020, 2, 20)
     end_date = dt.datetime(2020, 4, 30)
     
-    scenario_hist(df, weights, investment, start_date, end_date, "Stress Test Scenario 1. Oil Price Crash 2020")
+    scenario_hist(df, n_contracts, multipliers, start_date, end_date, "Stress Test Scenario 1. Oil Price Crash 2020")
     
 
 #   Scenario 2. Energy Crisis 2022
@@ -194,7 +231,7 @@ def main():
     start_date = dt.datetime(2022, 2, 24)
     end_date = dt.datetime(2022, 10, 31)
     
-    scenario_hist(df, weights, investment, start_date, end_date, "Stress Test Scenario 2. Energy Crisis 2022")
+    scenario_hist(df, n_contracts, multipliers, start_date, end_date, "Stress Test Scenario 2. Energy Crisis 2022")
 
 #   Scenario 3. Increased Volatility
     ci = 0.95
@@ -202,11 +239,9 @@ def main():
     volatility_coefficient = 2
 
     VaR_5, ES_5, total_pnl_5 = get_risk_t(
-        df,
+        pnl=pnl,
         days=5,
         ci=ci,
-        investment=investment,
-        weights=weights,
         nu=nu,
         volatility_scaler=volatility_coefficient
         )
@@ -220,11 +255,9 @@ def main():
 
 
     VaR_10, ES_10, total_pnl_10 = get_risk_t(
-        df,
+        pnl=pnl,
         days=10,
         ci=ci,
-        investment=investment,
-        weights=weights,
         nu=nu,
         volatility_scaler=volatility_coefficient
     )
@@ -254,11 +287,9 @@ def main():
     nu = 3
 
     VaR_5, ES_5, total_pnl_5 = get_risk_t(
-        df,
+        pnl=pnl,
         days=5,
         ci=ci,
-        investment=investment,
-        weights=weights,
         nu=nu
     )
 
@@ -271,7 +302,12 @@ def main():
     )
 
 
-    VaR_10, ES_10, total_pnl_10 = get_risk_t(df, days=10, ci=ci, investment=investment, weights=weights, nu=nu)
+    VaR_10, ES_10, total_pnl_10 = get_risk_t(
+        pnl=pnl, 
+        days=10, 
+        ci=ci, 
+        nu=nu
+    )
 
     create_hist_plot(
         total_pnl_10,
@@ -299,11 +335,9 @@ def main():
     volatility_coefficient = 4
 
     VaR_5, ES_5, total_pnl_5 = get_risk_t(
-        df,
+        pnl=pnl,
         days=5,
         ci=ci,
-        investment=investment,
-        weights=weights, 
         nu=nu,
         volatility_scaler=volatility_coefficient
     )
@@ -318,11 +352,9 @@ def main():
 
 
     VaR_10, ES_10, total_pnl_10 = get_risk_t(
-        df,
+        pnl=pnl,
         days=10,
         ci=ci,
-        investment=investment,
-        weights=weights,
         nu=nu,
         volatility_scaler=volatility_coefficient
     )
@@ -350,4 +382,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
