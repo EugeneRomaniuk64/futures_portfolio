@@ -4,25 +4,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 import datetime as dt
 
-
-def tv_download(tickers , interval: str, n_bars) -> pd.DataFrame: #tickers in format: symbol, exchange
+#Used to download new data. NOTE: API is sometimes faulty
+def tv_download(tickers: pd.DataFrame, interval = Interval.in_daily, n_bars=2900) -> pd.DataFrame: #tickers in format: symbol, exchange
     tv = TvDatafeed()
     returns_df = pd.DataFrame()
 
     for i in range(len(tickers)):
         df: pd.DataFrame = tv.get_hist(
-            symbol=tickers[i][0],
-            exchange=tickers[i][1],
+            symbol=tickers.index[i],
+            exchange=tickers["Exchange"].iloc[i],
             interval=interval,
             n_bars=n_bars,
             fut_contract=1
             )
         
-        returns_df[f"{tickers[i][0]}"] = df["close"].values
-        returns_df.set_index(df.index.values, inplace=True)
+        returns_df[f"{tickers.index[i]}"] = df["close"].values
+        returns_df = returns_df.set_index(df.index.values)
 
     return returns_df.dropna()
 
+#Imports data from a file (Preferred method)
 def tv_import(path: str) -> pd.DataFrame:
     df = pd.read_csv(f"./data/{path}")
     df.set_index(pd.to_datetime(df.iloc[:, 0]), inplace=True)
@@ -33,6 +34,7 @@ def get_pnl(price_df, num_contracts, multipliers) -> pd.Series:
     delta_price = price_df.diff().dropna() 
     return delta_price * num_contracts * multipliers
 
+#Computes historical VaR and ES
 def get_risk_hist(pnl: pd.Series, days, ci):
     range_pnl = pnl.rolling(window=days).sum() 
     range_pnl = range_pnl.dropna()
@@ -59,7 +61,7 @@ def get_risk_t(pnl: pd.DataFrame, days, ci, num_sims = 100_000, nu = 4, volatili
     L = np.linalg.cholesky(shape)
 
     # Generating all normal draws (our numerator)
-    rng = np.random.default_rng(None) #Creating the random seed
+    rng = np.random.default_rng(123) #Creating the random seed
     Z = rng.standard_normal(size=(num_sims, days, n_assets))
     daily_normal = Z @ L.T #shape: (num_sims, days, n_assets)
 
@@ -81,10 +83,10 @@ def get_risk_t(pnl: pd.DataFrame, days, ci, num_sims = 100_000, nu = 4, volatili
     return float(var), float(es), pd.Series(total_pnl)
 
 
-
+#Plots returns with several vertical lines which can show VaR, ES or other metrics
 def create_hist_plot(data: pd.Series, title: str, lines: tuple[float], lines_labels: tuple[str], line_colors: tuple[str]):
     plt.figure(figsize=(10, 6))
-    plt.hist(data, bins=50, alpha=0.75, color="blue", edgecolor="black")
+    plt.hist(data, bins=120, alpha=0.75, color="blue", edgecolor="black")
 
     if lines != None:
         for line, label, color in zip(lines, lines_labels, line_colors):
@@ -93,13 +95,18 @@ def create_hist_plot(data: pd.Series, title: str, lines: tuple[float], lines_lab
     plt.title(title)
     plt.xlabel("Returns")
     plt.ylabel("Frequency")
+    plt.xlim(-1_000_000_000, 1_000_000_000)
     plt.legend()
     plt.show()
 
+#Shows cumulative P&L cash flows as a chart
 def pnl_chart(pnl, capital, title):
+    starting_capital = pd.Series([capital], index=[pnl.index[0]-dt.timedelta(days=1)])
     equity = capital + pnl.cumsum()
+    combined_equity = pd.concat([starting_capital, equity])
+
     plt.figure()
-    plt.plot(equity.index, equity)
+    plt.plot(combined_equity.index, combined_equity)
     plt.axhline(0)
     plt.title(title)
     plt.xlabel("Date")
@@ -107,7 +114,8 @@ def pnl_chart(pnl, capital, title):
     plt.tight_layout()
     plt.show()
 
-def scenario_hist(df, n_contracts, multipliers, start_date: dt.datetime, end_date: dt.datetime, title):
+#Historical stress test. Computes historical as well as Monte Carlo VaR and ES
+def scenario_hist(df, n_contracts, multipliers, start_date: dt.datetime, end_date: dt.datetime, title, initial_margin):
     days = 5
     ci = 0.95
     nu = 5
@@ -124,7 +132,7 @@ def scenario_hist(df, n_contracts, multipliers, start_date: dt.datetime, end_dat
 
     total_loss_gain = scenario_pnl.sum()
 
-    pnl_chart(scenario_pnl, 250_000_000, title=f"{title}. Portfolio Equity")
+    pnl_chart(scenario_pnl, initial_margin, title=f"{title}. Portfolio Equity")
 
     VaR_mc, ES_mc, total_pnl = get_risk_t(
         pnl=scenario_pnl_df,
@@ -162,50 +170,39 @@ def scenario_hist(df, n_contracts, multipliers, start_date: dt.datetime, end_dat
 def main():
     tickers_list = pd.DataFrame(
         [
-            ["NYMEX", "WTI Crude Oil", 1000], 
-            ["NYMEX", "RBOB Gasoline", 42_000],
-            ["NYMEX", "Natural Gas", 10_000],
-            ["COMEX", "Gold", 100],
-            ["COMEX", "Silver", 5000],
-            ["NYMEX", "Platinum", 50],
-            ["COMEX", "Aluminum (NOT Aluminium)", 25],
-            ["COMEX", "Copper", 25_000],
-            ["CME", "Live Cattle", 40_000],
-            ["CBOT", "Soybeans", 5000]
+            ["NYMEX", "WTI Crude Oil", 1000, 145, 41.63], 
+            ["NYMEX", "RBOB Gasoline", 42_000, 206, 1.8033],
+            ["NYMEX", "Natural Gas", 10_000, 756, 1.583],
+            ["COMEX", "Gold", 100, 57, 4319.7],
+            ["COMEX", "Silver", 5000, 69, 49.82],
+            ["NYMEX", "Platinum", 50, 363, 1348.2],
+            ["COMEX", "Aluminum (NOT Aluminium)", 25, 911, 2093.75],
+            ["COMEX", "Copper", 25_000, 477, 3.1315],
+            ["CME", "Live Cattle", 40_000, 194, 204.325],
+            ["CBOT", "Soybeans", 5000, 335, 1060]
         ], 
-        columns=["Exchange", "Description", "Multiplier"],
+        columns=["Exchange", "Description", "Multiplier", "Amount", "Entry Price"],
         index=["CL", "RB", "NG", "GC", "SI", "PL", "ALI", "HG", "LE", "ZS"]
     )
 
-
+    initial_margin = 114000000
 
     df = tv_import("tv_data.csv")
 
-#    weights = np.array([1/len(tickers_list)]*len(tickers_list)) 
-
-    weights = np.array([-0.1, 0.1, -0.1, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1])
-
-    prices_today = df.iloc[-1].values
-
     multipliers = tickers_list.loc[:, "Multiplier"].values
+    n_contracts = tickers_list.loc[:, "Amount"].values
 
-    investment = 5_000_000_000 * 0.95
 
-    notional_total = investment * 10
-
-    notional = notional_total * weights
-    contract_values = prices_today * multipliers
-
-    n_contracts = notional / contract_values
-    n_contracts = np.trunc(n_contracts) #rounding to zero to be more conservative
+    prices_today = tickers_list["Entry Price"]
+    tickers_list["Exposure"] = tickers_list["Multiplier"] * tickers_list["Amount"] * prices_today
+    print(f"Total Notional Exposure: ${tickers_list["Exposure"].sum():,.0f}")
 
 
     pnl = get_pnl(df, n_contracts, multipliers)
     portfolio_pnl = pnl.sum(axis=1)
 
+    #Hisorical risk metrics
     VaR, ES, rolling_pnl = get_risk_hist(portfolio_pnl, 10, 0.95)
-
-    print(portfolio_pnl.std())
 
     print(f"""
         ---Common Risk Metrics---\n
@@ -225,7 +222,15 @@ def main():
     start_date = dt.datetime(2020, 2, 20)
     end_date = dt.datetime(2020, 4, 30)
     
-    scenario_hist(df, n_contracts, multipliers, start_date, end_date, "Stress Test Scenario 1. Oil Price Crash 2020")
+    scenario_hist(
+        df=df,
+        n_contracts=n_contracts, 
+        multipliers=multipliers, 
+        start_date=start_date, 
+        end_date=end_date, 
+        title="Stress Test Scenario 1. Oil Price Crash 2020", 
+        initial_margin=initial_margin
+        )
     
 
 #   Scenario 2. Energy Crisis 2022
@@ -233,7 +238,15 @@ def main():
     start_date = dt.datetime(2022, 2, 24)
     end_date = dt.datetime(2022, 10, 31)
     
-    scenario_hist(df, n_contracts, multipliers, start_date, end_date, "Stress Test Scenario 2. Energy Crisis 2022")
+    scenario_hist(
+        df=df,
+        n_contracts=n_contracts,
+        multipliers=multipliers,
+        start_date=start_date,
+        end_date=end_date,
+        title="Stress Test Scenario 2. Energy Crisis 2022",
+        initial_margin=initial_margin
+        )
 
 #   Scenario 3. Increased Volatility
     ci = 0.95
@@ -384,5 +397,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
 
 
