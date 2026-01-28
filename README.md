@@ -1,1 +1,1 @@
-# futures_portfolio
+In this project, I have conducted risk analysis for a specific commodities futures portfolio, as well as implemented S&P GSCI Dynamic Roll Recommendation. I have performed five different stress tests. Historical as well as Monte Carlo methods for computing Value at Risk and Expected Shortfall were used. In the case of Monte Carlo simulations, portfolio p&l were assumed to be distributed under a multivariate Student t-distribution. s # futures_portfolio
