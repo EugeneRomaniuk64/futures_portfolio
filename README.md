@@ -25,7 +25,7 @@ The default portfolio consists of 10 commodity futures contracts across energy, 
 
 ## Features
 
-### `tv.py` — Portfolio Risk & Scenario Analysis
+### `main.py` — Portfolio Risk & Scenario Analysis
 
 - **P&L calculation** — computes daily mark-to-market P&L from price data, contract sizes, and multipliers
 - **Historical VaR & ES** — rolling-window historical simulation at configurable confidence intervals and holding periods
@@ -89,7 +89,7 @@ Maximum Implied Roll Yield (Annualized): 12.34%
 Place your price data CSV at `./data/tv_data.csv`, then run:
 
 ```bash
-python src/tv.py
+python src/main.py
 ```
 
 ### Dynamic Roll Optimizer
@@ -104,8 +104,8 @@ python src/dynamic_roll.py
 
 ## Data
 
-- **`./data/tv_data.csv`** — historical daily close prices for all 10 tickers (columns = tickers, index = dates)
-- **`./data/RB.csv`** — futures curve data for roll optimization (TICKER, DATE, PRICE)
+- **`./data/tv_data.csv`** — historical daily close prices for all 10 tickers (columns = tickers, index = dates) taked from TradingView
+- **`./data/RB.csv`** — futures curve data for roll optimization (TICKER, DATE, PRICE) taken from Bloomberg
 
 > **Note:** The TvDatafeed download method (`tv_download`) is available but may be unstable due to API limitations. Using local CSV import (`tv_import`) is recommended.
 
@@ -116,7 +116,7 @@ python src/dynamic_roll.py
 ```
 futures_portfolio/
 ├── src/
-│   ├── tv.py               # Portfolio risk analytics & stress testing
+│   ├── main.py               # Portfolio risk analytics & stress testing
 │   └── dynamic_roll.py     # Dynamic roll yield optimizer
 ├── data/
 │   ├── tv_data.csv         # Historical price data
